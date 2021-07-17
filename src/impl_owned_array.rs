@@ -1,18 +1,20 @@
-
 use alloc::vec::Vec;
 use std::mem;
 use std::mem::MaybeUninit;
+use std::ptr::NonNull;
 
 use rawpointer::PointerExt;
 
 use crate::imp_prelude::*;
 
+use crate::accelerators::WgpuDevice;
 use crate::dimension;
 use crate::error::{ErrorKind, ShapeError};
 use crate::iterators::Baseiter;
 use crate::low_level_util::AbortIfPanic;
-use crate::OwnedRepr;
+use crate::WgpuArray;
 use crate::Zip;
+use crate::{OwnedRepr, WgpuRepr};
 
 /// Methods specific to `Array0`.
 ///
@@ -69,6 +71,24 @@ where
     /// of the array (`.iter()` order) and of the returned vector will be the same.
     pub fn into_raw_vec(self) -> Vec<A> {
         self.data.into_vec()
+    }
+}
+
+impl<A, D> Array<A, D>
+where
+    A: bytemuck::Pod,
+    D: Dimension,
+{
+    pub fn into_wgpu(self, wgpu_device: &WgpuDevice) -> WgpuArray<A, D> {
+        let slice = self.data.as_slice();
+
+        let data: WgpuRepr<A> = WgpuRepr::new(slice, wgpu_device);
+        ArrayBase {
+            data,
+            ptr: NonNull::dangling(), // Hack. There is nothing to point to
+            dim: self.dim,
+            strides: self.strides,
+        }
     }
 }
 
@@ -172,7 +192,8 @@ impl<A> Array<A, Ix2> {
 }
 
 impl<A, D> Array<A, D>
-    where D: Dimension
+where
+    D: Dimension,
 {
     /// Move all elements from self into `new_array`, which must be of the same shape but
     /// can have a different memory layout. The destination is overwritten completely.
@@ -204,9 +225,7 @@ impl<A, D> Array<A, D>
         } else {
             // If `A` doesn't need drop, we can overwrite the destination.
             // Safe because: move_into_uninit only writes initialized values
-            unsafe {
-                self.move_into_uninit(new_array.into_maybe_uninit())
-            }
+            unsafe { self.move_into_uninit(new_array.into_maybe_uninit()) }
         }
     }
 
@@ -215,7 +234,8 @@ impl<A, D> Array<A, D>
         // Afterwards, `self` drops full of initialized values and dropping works as usual.
         // This avoids moving out of owned values in `self` while at the same time managing
         // the dropping if the values being overwritten in `new_array`.
-        Zip::from(&mut self).and(new_array)
+        Zip::from(&mut self)
+            .and(new_array)
             .for_each(|src, dst| mem::swap(src, dst));
     }
 
@@ -407,16 +427,17 @@ impl<A, D> Array<A, D>
     ///            [0., 0., 0., 0.],
     ///            [1., 1., 1., 1.]]);
     /// ```
-    pub fn push(&mut self, axis: Axis, array: ArrayView<A, D::Smaller>)
-        -> Result<(), ShapeError>
+    pub fn push(&mut self, axis: Axis, array: ArrayView<A, D::Smaller>) -> Result<(), ShapeError>
     where
         A: Clone,
         D: RemoveAxis,
     {
         // same-dimensionality conversion
-        self.append(axis, array.insert_axis(axis).into_dimensionality::<D>().unwrap())
+        self.append(
+            axis,
+            array.insert_axis(axis).into_dimensionality::<D>().unwrap(),
+        )
     }
-
 
     /// Append an array to the array along an axis.
     ///
@@ -468,8 +489,7 @@ impl<A, D> Array<A, D>
     ///            [1., 1., 1., 1.],
     ///            [1., 1., 1., 1.]]);
     /// ```
-    pub fn append(&mut self, axis: Axis, mut array: ArrayView<A, D>)
-        -> Result<(), ShapeError>
+    pub fn append(&mut self, axis: Axis, mut array: ArrayView<A, D>) -> Result<(), ShapeError>
     where
         A: Clone,
         D: RemoveAxis,
@@ -562,7 +582,11 @@ impl<A, D> Array<A, D>
                     acc
                 } else {
                     let this_ax = ax.len as isize * ax.stride.abs();
-                    if this_ax > acc { this_ax } else { acc }
+                    if this_ax > acc {
+                        this_ax
+                    } else {
+                        acc
+                    }
                 }
             });
             let mut strides = self.strides.clone();
@@ -580,7 +604,10 @@ impl<A, D> Array<A, D>
                 0
             };
             debug_assert!(data_to_array_offset >= 0);
-            self.ptr = self.data.reserve(len_to_append).offset(data_to_array_offset);
+            self.ptr = self
+                .data
+                .reserve(len_to_append)
+                .offset(data_to_array_offset);
 
             // clone elements from view to the array now
             //
@@ -614,10 +641,13 @@ impl<A, D> Array<A, D>
 
             if tail_view.ndim() > 1 {
                 sort_axes_in_default_order_tandem(&mut tail_view, &mut array);
-                debug_assert!(tail_view.is_standard_layout(),
-                              "not std layout dim: {:?}, strides: {:?}",
-                              tail_view.shape(), tail_view.strides());
-            } 
+                debug_assert!(
+                    tail_view.is_standard_layout(),
+                    "not std layout dim: {:?}, strides: {:?}",
+                    tail_view.shape(),
+                    tail_view.strides()
+                );
+            }
 
             // Keep track of currently filled length of `self.data` and update it
             // on scope exit (panic or loop finish). This "indirect" way to
@@ -640,7 +670,6 @@ impl<A, D> Array<A, D>
                 len: self.data.len(),
                 data: &mut self.data,
             };
-
 
             // Safety: tail_view is constructed to have the same shape as array
             Zip::from(tail_view)
@@ -671,8 +700,11 @@ impl<A, D> Array<A, D>
 ///
 /// This is an internal function for use by move_into and IntoIter only, safety invariants may need
 /// to be upheld across the calls from those implementations.
-pub(crate) unsafe fn drop_unreachable_raw<A, D>(mut self_: RawArrayViewMut<A, D>, data_ptr: *mut A, data_len: usize)
-where
+pub(crate) unsafe fn drop_unreachable_raw<A, D>(
+    mut self_: RawArrayViewMut<A, D>,
+    data_ptr: *mut A,
+    data_len: usize,
+) where
     D: Dimension,
 {
     let self_len = self_.len();
@@ -737,8 +769,11 @@ where
         dropped_elements += 1;
     }
 
-    assert_eq!(data_len, dropped_elements + self_len,
-               "Internal error: inconsistency in move_into");
+    assert_eq!(
+        data_len,
+        dropped_elements + self_len,
+        "Internal error: inconsistency in move_into"
+    );
 }
 
 /// Sort axes to standard order, i.e Axis(0) has biggest stride and Axis(n - 1) least stride
@@ -779,7 +814,6 @@ where
         }
     }
 }
-
 
 /// Sort axes to standard order, i.e Axis(0) has biggest stride and Axis(n - 1) least stride
 ///

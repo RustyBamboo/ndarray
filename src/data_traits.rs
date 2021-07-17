@@ -10,13 +10,15 @@
 
 use rawpointer::PointerExt;
 
-use std::mem::{self, size_of};
-use std::mem::MaybeUninit;
-use std::ptr::NonNull;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use std::mem::MaybeUninit;
+use std::mem::{self, size_of};
+use std::ptr::NonNull;
 
-use crate::{ArrayBase, CowRepr, Dimension, OwnedArcRepr, OwnedRepr, RawViewRepr, ViewRepr};
+use crate::{
+    ArrayBase, CowRepr, Dimension, OwnedArcRepr, OwnedRepr, RawViewRepr, ViewRepr, WgpuRepr,
+};
 
 /// Array representation trait.
 ///
@@ -33,7 +35,7 @@ pub unsafe trait RawData: Sized {
 
     #[doc(hidden)]
     // This method is only used for debugging
-    #[deprecated(note="Unused", since="0.15.2")]
+    #[deprecated(note = "Unused", since = "0.15.2")]
     fn _data_slice(&self) -> Option<&[Self::Elem]>;
 
     #[doc(hidden)]
@@ -160,7 +162,9 @@ unsafe impl<A> RawData for RawViewRepr<*const A> {
     }
 
     #[inline(always)]
-    fn _is_pointer_inbounds(&self, _ptr: *const Self::Elem) -> bool { true }
+    fn _is_pointer_inbounds(&self, _ptr: *const Self::Elem) -> bool {
+        true
+    }
 
     private_impl! {}
 }
@@ -180,7 +184,9 @@ unsafe impl<A> RawData for RawViewRepr<*mut A> {
     }
 
     #[inline(always)]
-    fn _is_pointer_inbounds(&self, _ptr: *const Self::Elem) -> bool { true }
+    fn _is_pointer_inbounds(&self, _ptr: *const Self::Elem) -> bool {
+        true
+    }
 
     private_impl! {}
 }
@@ -266,8 +272,7 @@ unsafe impl<A> Data for OwnedArcRepr<A> {
         let data = Arc::try_unwrap(self_.data.0).ok().unwrap();
         // safe because data is equivalent
         unsafe {
-            ArrayBase::from_data_ptr(data, self_.ptr)
-                .with_strides_dim(self_.strides, self_.dim)
+            ArrayBase::from_data_ptr(data, self_.ptr).with_strides_dim(self_.strides, self_.dim)
         }
     }
 
@@ -375,7 +380,9 @@ unsafe impl<'a, A> RawData for ViewRepr<&'a A> {
     }
 
     #[inline(always)]
-    fn _is_pointer_inbounds(&self, _ptr: *const Self::Elem) -> bool { true }
+    fn _is_pointer_inbounds(&self, _ptr: *const Self::Elem) -> bool {
+        true
+    }
 
     private_impl! {}
 }
@@ -405,7 +412,9 @@ unsafe impl<'a, A> RawData for ViewRepr<&'a mut A> {
     }
 
     #[inline(always)]
-    fn _is_pointer_inbounds(&self, _ptr: *const Self::Elem) -> bool { true }
+    fn _is_pointer_inbounds(&self, _ptr: *const Self::Elem) -> bool {
+        true
+    }
 
     private_impl! {}
 }
@@ -452,7 +461,7 @@ unsafe impl<'a, A> DataMut for ViewRepr<&'a mut A> {}
 pub unsafe trait DataOwned: Data {
     /// Corresponding owned data with MaybeUninit elements
     type MaybeUninit: DataOwned<Elem = MaybeUninit<Self::Elem>>
-        + RawDataSubst<Self::Elem, Output=Self>;
+        + RawDataSubst<Self::Elem, Output = Self>;
     #[doc(hidden)]
     fn new(elements: Vec<Self::Elem>) -> Self;
 
@@ -597,8 +606,7 @@ unsafe impl<'a, A> Data for CowRepr<'a, A> {
             CowRepr::View(_) => self_.to_owned(),
             CowRepr::Owned(data) => unsafe {
                 // safe because the data is equivalent so ptr, dims remain valid
-                ArrayBase::from_data_ptr(data, self_.ptr)
-                    .with_strides_dim(self_.strides, self_.dim)
+                ArrayBase::from_data_ptr(data, self_.ptr).with_strides_dim(self_.strides, self_.dim)
             },
         }
     }
@@ -682,4 +690,18 @@ impl<'a, A: 'a, B: 'a> RawDataSubst<B> for CowRepr<'a, A> {
             CowRepr::Owned(owned) => CowRepr::Owned(owned.data_subst()),
         }
     }
+}
+
+unsafe impl<A> RawData for WgpuRepr<'_, A> {
+    type Elem = A;
+
+    fn _data_slice(&self) -> Option<&[A]> {
+        None
+    }
+
+    fn _is_pointer_inbounds(&self, _self_ptr: *const Self::Elem) -> bool {
+        true
+    }
+
+    private_impl! {}
 }

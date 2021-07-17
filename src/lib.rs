@@ -123,13 +123,12 @@
 //! For conversion between `ndarray`, [`nalgebra`](https://crates.io/crates/nalgebra) and
 //! [`image`](https://crates.io/crates/image) check out [`nshare`](https://crates.io/crates/nshare).
 
-
 extern crate alloc;
 
-#[cfg(feature = "std")]
-extern crate std;
 #[cfg(not(feature = "std"))]
 extern crate core as std;
+#[cfg(feature = "std")]
+extern crate std;
 
 #[cfg(feature = "blas")]
 extern crate cblas_sys;
@@ -137,8 +136,8 @@ extern crate cblas_sys;
 #[cfg(feature = "docs")]
 pub mod doc;
 
-use std::marker::PhantomData;
 use alloc::sync::Arc;
+use std::marker::PhantomData;
 
 pub use crate::dimension::dim::*;
 pub use crate::dimension::{Axis, AxisDescription, Dimension, IntoDimension, RemoveAxis};
@@ -157,16 +156,16 @@ use crate::iterators::Baseiter;
 use crate::iterators::{ElementsBase, ElementsBaseMut, Iter, IterMut};
 
 pub use crate::arraytraits::AsArray;
+pub use crate::linalg_traits::LinalgScalar;
 #[cfg(feature = "std")]
 pub use crate::linalg_traits::NdFloat;
-pub use crate::linalg_traits::LinalgScalar;
 
 #[allow(deprecated)] // stack_new_axis
 pub use crate::stacking::{concatenate, stack, stack_new_axis};
 
-pub use crate::math_cell::MathCell;
 pub use crate::impl_views::IndexLonger;
-pub use crate::shape_builder::{Shape, ShapeBuilder, ShapeArg, StrideShape};
+pub use crate::math_cell::MathCell;
+pub use crate::shape_builder::{Shape, ShapeArg, ShapeBuilder, StrideShape};
 
 #[macro_use]
 mod macro_utils;
@@ -187,8 +186,7 @@ mod data_traits;
 pub use crate::aliases::*;
 
 pub use crate::data_traits::{
-    Data, DataMut, DataOwned, DataShared, RawData, RawDataClone, RawDataMut,
-    RawDataSubst,
+    Data, DataMut, DataOwned, DataShared, RawData, RawDataClone, RawDataMut, RawDataSubst,
 };
 
 mod free_functions;
@@ -211,15 +209,18 @@ mod partial;
 mod shape_builder;
 #[macro_use]
 mod slice;
+mod low_level_util;
 mod split_at;
 mod stacking;
-mod low_level_util;
 #[macro_use]
 mod zip;
+mod accelerators;
 
 mod dimension;
 
 pub use crate::zip::{FoldWhile, IntoNdProducer, NdProducer, Zip};
+
+pub use crate::accelerators::WgpuDevice;
 
 pub use crate::layout::Layout;
 
@@ -1446,6 +1447,11 @@ pub type RawArrayView<A, D> = ArrayBase<RawViewRepr<*const A>, D>;
 /// [`from_shape_ptr`](#method.from_shape_ptr) for details.
 pub type RawArrayViewMut<A, D> = ArrayBase<RawViewRepr<*mut A>, D>;
 
+///
+/// An array that is stored on a WGPU device.
+///
+pub type WgpuArray<'a, A, D> = ArrayBase<WgpuRepr<'a, A>, D>;
+
 pub use data_repr::OwnedRepr;
 
 /// ArcArray's representation.
@@ -1526,17 +1532,42 @@ impl<'a, A> CowRepr<'a, A> {
     }
 }
 
+///
+/// WgpuArray's representation.
+///
+/// *Don't use this type directly—use the type alias
+/// [`WgpuArray`](type.WgpuArray.html) for the array type!*
+pub struct WgpuRepr<'a, A> {
+    wgpu_device: &'a WgpuDevice,
+    storage_buffer: wgpu::Buffer,
+    len: usize,
+    life: PhantomData<A>,
+}
+
+impl<'a, A: bytemuck::Pod> WgpuRepr<'a, A> {
+    pub fn new(slice: &[A], wgpu_device: &'a WgpuDevice) -> Self {
+        let storage_buffer = wgpu_device.create_storage_buffer(slice);
+        WgpuRepr {
+            wgpu_device,
+            storage_buffer,
+            len: slice.len(),
+            life: PhantomData,
+        }
+    }
+}
+
 // NOTE: The order of modules decides in which order methods on the type ArrayBase
 // (mainly mentioning that as the most relevant type) show up in the documentation.
 // Consider the doc effect of ordering modules here.
 mod impl_clone;
 
-mod impl_internal_constructors;
 mod impl_constructors;
+mod impl_internal_constructors;
 
 mod impl_methods;
 mod impl_owned_array;
 mod impl_special_element_types;
+mod impl_wgpu_array;
 
 /// Private Methods
 impl<A, S, D> ArrayBase<S, D>
@@ -1593,9 +1624,7 @@ where
         let d = self.dim.try_remove_axis(axis);
         let s = self.strides.try_remove_axis(axis);
         // safe because new dimension, strides allow access to a subset of old data
-        unsafe {
-            self.with_strides_dim(s, d)
-        }
+        unsafe { self.with_strides_dim(s, d) }
     }
 }
 
@@ -1614,6 +1643,7 @@ mod numeric;
 pub mod linalg;
 
 mod impl_ops;
+mod impl_wgpu_ops;
 pub use crate::impl_ops::ScalarOperand;
 
 #[cfg(feature = "approx")]
