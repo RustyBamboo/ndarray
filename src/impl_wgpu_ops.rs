@@ -110,5 +110,5 @@ where
 );
 
 use std::ops::*;
-impl_binary_op!(Add, +, add, +=, "../wgpu-shaders/add.wgsl", "addition");
-impl_binary_op!(Sub, -, sub, -=, "../wgpu-shaders/sub.wgsl", "subtraction");
+impl_binary_op!(Add, +, add, +=, "../wgsl-shaders/add.wgsl", "addition");
+impl_binary_op!(Sub, -, sub, -=, "../wgsl-shaders/sub.wgsl", "subtraction");
