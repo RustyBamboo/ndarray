@@ -4,6 +4,7 @@ pub struct WgpuDevice {
     pub device: wgpu::Device,
     pub adapter: wgpu::Adapter,
     pub queue: wgpu::Queue,
+    pub workgroup_size: u32,
 }
 
 impl WgpuDevice {
@@ -28,6 +29,7 @@ impl WgpuDevice {
             device,
             adapter,
             queue,
+            workgroup_size: 8,
         })
     }
 

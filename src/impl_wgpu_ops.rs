@@ -1,4 +1,4 @@
-use crate::Dimension;
+use crate::{Dim, Dimension};
 use crate::WgpuArray;
 use crate::WgpuRepr;
 
@@ -112,3 +112,108 @@ where
 use std::ops::*;
 impl_binary_op!(Add, +, add, +=, "../wgsl-shaders/add.wgsl", "addition");
 impl_binary_op!(Sub, -, sub, -=, "../wgsl-shaders/sub.wgsl", "subtraction");
+
+
+use crate::Ix2;
+
+impl<'a, 'd,  A> WgpuArray<'d, A, Ix2>
+where
+    A: bytemuck::Pod + std::fmt::Debug + Default,
+{
+    pub fn dot(self, rhs: &WgpuArray<A,Ix2>) -> WgpuArray<'d, A,Ix2>
+    {
+        let cs_module =
+            self.data
+                .wgpu_device
+                .device
+                .create_shader_module(&wgpu::ShaderModuleDescriptor {
+                    label: None,
+                    source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../wgsl-shaders/dot.wgsl"))),
+                    flags: wgpu::ShaderFlags::empty(),
+                });
+
+        let result_shape = [self.shape()[0], rhs.shape()[1]];
+        let len = result_shape[0] * result_shape[1];
+        let sizes_buffer: Vec<u32> = [self.shape(), rhs.shape()].concat().iter().map(|&x| x as u32).collect();
+        let sizes_buffer = self.data.wgpu_device.create_storage_buffer(sizes_buffer.as_slice());
+
+        let storage_buffer = self.data.wgpu_device.create_storage_buffer(vec![A::default(); len].as_slice());
+        let compute_pipeline =
+            self
+                .data
+                .wgpu_device
+                .device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: None,
+                    layout: None,
+                    module: &cs_module,
+                    entry_point: "main",
+                });
+
+        //let mut sizes_buffer: Vec<u32> = self.shape().
+        //   iter().map(|&x| x as u32).collect();
+        //
+
+        
+
+        let bind_group_layout = compute_pipeline.get_bind_group_layout(0);
+        let bind_group = self
+            .data
+            .wgpu_device
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.data.storage_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: rhs.data.storage_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: storage_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: sizes_buffer.as_entire_binding(),
+                    },
+
+                ],
+            });
+        let mut encoder = self
+            .data
+            .wgpu_device
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut cpass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+            cpass.set_pipeline(&compute_pipeline);
+            cpass.set_bind_group(0, &bind_group, &[]);
+            cpass.insert_debug_marker("add");
+            let dispatch = [(result_shape[0] + 8 - 1) / 8, (result_shape[1] + 8 - 1 ) / 8 ];
+            cpass.dispatch(dispatch[0] as u32, dispatch[1] as u32, 1); // Number of cells to run, the (x,y,z) size of item being processed
+        }
+
+
+        // Submits command encoder for processing
+        self.data.wgpu_device.queue.submit(Some(encoder.finish()));
+        let data: WgpuRepr<A> = WgpuRepr {
+            wgpu_device: self.data.wgpu_device,
+            storage_buffer,
+            len,
+            life: PhantomData
+        };
+        let array = WgpuArray {
+            data,
+            ptr: NonNull::dangling(), // Hack. There is nothing to point to
+            dim: Dim(result_shape),
+            strides: self.strides.clone(),
+        };
+        array
+    }
+}
