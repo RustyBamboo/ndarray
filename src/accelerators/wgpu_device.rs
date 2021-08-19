@@ -46,6 +46,20 @@ impl WgpuDevice {
 
         storage_buffer
     }
+    pub fn create_storage_buffer_sized(&self, size: u64) -> wgpu::Buffer {
+        let storage_buffer = self
+            .device
+            .create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Storage Buffer"),
+                size,
+                usage: wgpu::BufferUsage::STORAGE
+                    | wgpu::BufferUsage::COPY_DST
+                    | wgpu::BufferUsage::COPY_SRC,
+                mapped_at_creation: false,
+            });
+
+        storage_buffer
+    }
 
     pub fn create_staging_buffer(&self, size: u64) -> wgpu::Buffer {
         self.device.create_buffer(&wgpu::BufferDescriptor {

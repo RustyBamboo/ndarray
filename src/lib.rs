@@ -1556,6 +1556,28 @@ impl<'a, A: bytemuck::Pod> WgpuRepr<'a, A> {
     }
 }
 
+impl <'a, A> Clone for WgpuRepr<'a, A> {
+
+    fn clone(&self) -> Self {
+        let slice_size = self.len * std::mem::size_of::<A>();
+        let size = slice_size as u64;
+
+        let storage_buffer = self.wgpu_device.create_storage_buffer_sized(size);
+        let mut encoder =
+        self.wgpu_device.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        encoder.copy_buffer_to_buffer(&self.storage_buffer, 0, &storage_buffer, 0, size); 
+
+        self.wgpu_device.queue.submit(Some(encoder.finish()));
+        WgpuRepr {
+            wgpu_device: self.wgpu_device,
+            storage_buffer,
+            len: self.len,
+            life: PhantomData
+        }
+    }
+}
+
 // NOTE: The order of modules decides in which order methods on the type ArrayBase
 // (mainly mentioning that as the most relevant type) show up in the documentation.
 // Consider the doc effect of ordering modules here.

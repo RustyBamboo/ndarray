@@ -7,6 +7,9 @@ struct Matrix {
 struct Sizes {
   size0: vec2<u32>;
   size1: vec2<u32>;
+
+  stride0: vec2<u32>;
+  stride1: vec2<u32>;
 };
 
 [[group(0), binding(0)]] var<storage> firstMatrix : [[access(read_write)]] Matrix;
@@ -22,8 +25,8 @@ fn main([[builtin(global_invocation_id)]] global_id : vec3<u32>) {
   let resultCell : vec2<u32> = vec2<u32>(global_id.x, global_id.y);
   var result : f32 = 0.0;
   for (var i : u32 = 0u; i < matrixSizes.size0.y; i = i + 1u) {
-    let a : u32 = i + resultCell.x * matrixSizes.size0.y;
-    let b : u32 = resultCell.y + i * matrixSizes.size1.y;
+    let a : u32 = i*matrixSizes.stride0.y + resultCell.x * matrixSizes.stride0.x;
+    let b : u32 = resultCell.y * matrixSizes.stride1.y + i * matrixSizes.stride1.x;
     result = result + firstMatrix.numbers[a] * secondMatrix.numbers[b];
   }
 

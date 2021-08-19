@@ -1,6 +1,9 @@
 use crate::Array;
 use crate::Dimension;
 use crate::WgpuArray;
+use crate::WgpuDevice;
+use crate::WgpuRepr;
+use std::marker::PhantomData;
 
 impl<A, D> WgpuArray<'_, A, D>
 where
@@ -41,5 +44,27 @@ where
             return array;
         }
         todo!()
+    }
+    
+    
+
+    pub fn get_wgpu_device(&self) -> &WgpuDevice {
+        self.data.wgpu_device
+    }
+}
+
+
+impl <A,D> Clone for WgpuArray<'_, A, D>
+where
+    A: bytemuck::Pod,
+    D: Dimension,
+{
+    fn clone(&self) -> Self {
+        WgpuArray {
+            data: self.data.clone(),
+            ptr: self.ptr,
+            dim: self.dim.clone(),
+            strides: self.strides.clone(),
+        }
     }
 }
