@@ -5,7 +5,7 @@ use crate::WgpuDevice;
 use crate::WgpuRepr;
 use std::marker::PhantomData;
 
-impl<A, D> WgpuArray<'_, A, D>
+impl<'d, A, D> WgpuArray<'d, A, D>
 where
     A: bytemuck::Pod + std::fmt::Debug,
     D: Dimension,
@@ -48,7 +48,7 @@ where
     
     
 
-    pub fn get_wgpu_device(&self) -> &WgpuDevice {
+    pub fn get_wgpu_device(&'d self) -> &'d WgpuDevice {
         self.data.wgpu_device
     }
 }
