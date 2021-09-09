@@ -286,6 +286,7 @@ use std::ops::*;
 impl_binary_op!(Add, +, add, +=, "../wgsl-shaders/add.wgsl", "addition");
 impl_binary_op!(Sub, -, sub, -=, "../wgsl-shaders/sub.wgsl", "subtraction");
 impl_binary_op!(Mul, *, mul, *=, "../wgsl-shaders/mul.wgsl", "multiplication");
+impl_binary_op!(Div, /, div, /=, "../wgsl-shaders/div.wgsl", "division");
 
 
 use crate::Ix2;
